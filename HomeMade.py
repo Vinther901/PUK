@@ -191,7 +191,8 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     # Full fit
     full_chi2 = Chi2Regression(full_fit, xs, vals, errs)
     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
-                       mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2)
+                       mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
+                      limit_mean=(475,525), limit_f=(0,1), limit_size=(0,None))
     
     full_min.migrad()
     counter = 0
@@ -261,9 +262,12 @@ def assign_pseudolabels(train_data):
     train_data['y'] = np.append(np.ones(min_sample),[np.zeros(min_sample),np.zeros(min_sample)])
     return train_data
 
-def ROC_data(mass, p):
-    tmp_p = np.sort(p)
-    p_ranges = tmp_p[np.linspace(0,len(tmp_p)-1,20,dtype=int)]
+def ROC_data(mass, p,thresholds=20,eq_intervals=False):
+    if eq_intervals:
+        p_ranges = np.linspace(0,1,thresholds)
+    else:
+        tmp_p = np.sort(p)
+        p_ranges = tmp_p[np.linspace(0,len(tmp_p)-1,thresholds,dtype=int)]
     
     sig_count, bkgr_count = [], []
 #     sig_count_err, bkgr_count_err = [], []
@@ -271,10 +275,12 @@ def ROC_data(mass, p):
     
     mass_fig, mass_ax = plt.subplots(figsize=(16,10))
     
-    for i, score in enumerate(p_ranges):
+    i = 0
+    for score in p_ranges:
         print(i)
         vals, binc, binw = hist(mass.loc[p<score],bins=100)
         if all(vals == 0):
+            print("No values, skipping..")
             mask = mask[:-1]
             continue
         
@@ -284,9 +290,10 @@ def ROC_data(mass, p):
         
         fig, ax, M, sig, bkgr = fit_mass2(binc[val_mask],vals[val_mask],np.sqrt(vals[val_mask]),plot=True)
         
-        if not M.valid:
+        if not M.valid or bkgr<0:
             mask[i] = False
         
         sig_count.append(sig)
         bkgr_count.append(bkgr)
+        i += 1
     return sig_count, bkgr_count, mask
