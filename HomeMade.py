@@ -206,6 +206,8 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     sig_amount = np.sum(f*sig1(xs, mean, sig, size) + (1-f)*sig2(xs, mean, sigmp*sig, size))
     bak_amount = np.sum(background_fit(xs, b1, b2, b3, b4))
     
+    neg_bkgr = any(background_fit(xs, b1, b2, b3, b4)<0)
+    
     if plot:
         ax_all.plot(xs, full_fit(xs, *full_min.args), "k-", label = "full_fit")
         ax_all.plot(xs, background_fit(xs, b1, b2, b3, b4),'b--',  label = "background_fit")
@@ -239,14 +241,15 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
         add_text_to_ax(0.70, 0.90, text_output, ax_sig)
 
         fig.tight_layout()
-        return fig, ax, full_min, sig_amount, bak_amount
+        return {'fig': fig,'ax': ax,'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr}
         
-    return full_min, sig_amount, bak_amount
+    return {'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr}
 
 def assign_pseudolabels(train_data):
     vals, binc, binw = hist(train_data.v0_ks_mass,bins=100)
-    fig, ax, M, sig, bkgr = fit_mass2(binc,vals,np.sqrt(vals))
-
+    d = fit_mass2(binc,vals,np.sqrt(vals))
+    fig, ax, M, sig, bkgr = d['fig'], d['ax'], d['M'], d['sig'], d['bkgr']
+    
     mean, sigma = M.values['mean'], M.values['sig']
     signal = train_data.loc[(train_data.v0_ks_mass > mean - sigma) & (train_data.v0_ks_mass < mean + sigma)]
     bkgr_l = train_data.loc[(train_data.v0_ks_mass > mean - 15*sigma) & (train_data.v0_ks_mass < mean - 10*sigma)]
@@ -262,7 +265,7 @@ def assign_pseudolabels(train_data):
     train_data['y'] = np.append(np.ones(min_sample),[np.zeros(min_sample),np.zeros(min_sample)])
     return train_data
 
-def ROC_data(mass, p,thresholds=20,eq_intervals=False):
+def ROC_data(mass, p,thresholds=20,eq_intervals=False,plot_fit=True,plot_ROC=True):
     if eq_intervals:
         p_ranges = np.linspace(0,1,thresholds)
     else:
@@ -287,13 +290,36 @@ def ROC_data(mass, p,thresholds=20,eq_intervals=False):
         mass_ax.plot(binc,vals,c='grey',alpha=0.5)
         
         val_mask = vals > 0
+        if plot_fit:
+            d = fit_mass2(binc[val_mask],vals[val_mask],np.sqrt(vals[val_mask]),plot=True)
+            fig, ax, M, sig, bkgr = d['fig'], d['ax'], d['M'], d['sig'], d['bkgr']
+        else:
+            d = fit_mass2(binc[val_mask],vals[val_mask],np.sqrt(vals[val_mask]),plot=False)
+            M, sig, bkgr = d['M'], d['sig'], d['bkgr']
         
-        fig, ax, M, sig, bkgr = fit_mass2(binc[val_mask],vals[val_mask],np.sqrt(vals[val_mask]),plot=True)
-        
-        if not M.valid or bkgr<0:
+        if not M.valid or bkgr<0 or d['neg_bkgr']:
             mask[i] = False
         
         sig_count.append(sig)
         bkgr_count.append(bkgr)
         i += 1
-    return sig_count, bkgr_count, mask
+        
+    if plot_ROC:
+        from scipy.integrate import quad
+        
+        s = np.array(sig_count)
+        b = np.array(bkgr_count)
+        
+        auc = quad(lambda xx: np.interp(xx,np.sort(1 - b[mask]/b[mask].max()),np.sort(1 - s[mask]/s[mask].max())), \
+                   0,1,points=np.sort(1 - b[mask]/b[mask].max()))
+        
+        fig, ax = plt.subplots(figsize=(16,7),ncols=2)
+        ax[0].set_title('Unmasked')
+        ax[1].set_title(f'Masked: approx AUC = {auc[0]}')
+        
+        ax[0].plot(1 - b/b.max(), 1 - s/s.max(),'b.')
+        ax[1].plot(1 - b[mask]/b[mask].max(), 1 - s[mask]/s[mask].max(),'b.')
+        
+        return fig, ax, np.array(sig_count), np.array(bkgr_count), mask
+        
+    return np.array(sig_count), np.array(bkgr_count), mask
