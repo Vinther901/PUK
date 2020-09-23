@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from iminuit import Minuit
 from AppStatFunctions import Chi2Regression,UnbinnedLH, BinnedLH, add_text_to_ax, nice_string_output
 import pandas as pd
+import warnings
 
 def hist(data,bins=None,range=None,integers=False):
     if integers:
@@ -177,11 +178,15 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     b1, b2, b3, b4 = vals_b
     bkgr_chi2 = Chi2Regression(background_fit, xs[bkgr_mask], vals[bkgr_mask], errs[bkgr_mask])
     bkgr_min  = Minuit(bkgr_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4)
-    bkgr_min.migrad()
-    counter = 0
-    while not bkgr_min.valid and counter<50:
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        
         bkgr_min.migrad()
-        counter += 1
+        counter = 0
+        while not bkgr_min.valid and counter<50:
+            bkgr_min.migrad()
+            counter += 1
     if not bkgr_min.valid: print("No background valid minimum found!")
     
     #Save guesses 
@@ -193,12 +198,14 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
                        mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
                       limit_mean=(475,525), limit_f=(0,1), limit_size=(0,None))
-    
-    full_min.migrad()
-    counter = 0
-    while not full_min.valid and counter<200:
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        
         full_min.migrad()
-        counter += 1
+        counter = 0
+        while not full_min.valid and counter<200:
+            full_min.migrad()
+            counter += 1
     if not full_min.valid: print("No valid minimum found!")
     
     mean, sig, size, f, sigmp, b1, b2, b3, b4 = full_min.args
@@ -280,7 +287,6 @@ def ROC_data(mass, p,thresholds=20,eq_intervals=False,plot_fit=True,plot_ROC=Tru
     
     i = 0
     for score in p_ranges:
-        print(i)
         vals, binc, binw = hist(mass.loc[p<score],bins=100)
         if all(vals == 0):
             print("No values, skipping..")
