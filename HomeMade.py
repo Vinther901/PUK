@@ -159,7 +159,7 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
         ax_all.errorbar(xs, vals, errs, color = 'k', elinewidth = 1, capsize = 2, ls = 'none')
 
     def background_fit(x, a, b, c, d):
-        return a * (x- 498) ** 3 + b * (x-498) ** 2 + c * (x-498) + d
+        return a * (x- guesses_sig[0]) ** 3 + b * (x-guesses_sig[0]) ** 2 + c * (x-guesses_sig[0]) + d
     
     # The signal fit  Here gauss
     def sig1(x, mean, sig, size):
