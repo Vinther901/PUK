@@ -20,24 +20,24 @@ class Dataset():
 
         # Import uproot and load file
         import uproot
-        file = uproot.open(path)
-        data = file['tree'].pandas.df(params, entrystop = load_amount)
-        mass = file['tree'].pandas.df("v0_mass_" + self.masstype, entrystop = load_amount)
+        file = uproot.open(self.path)
+        data = file['tree'].pandas.df(self.params, entrystop = load_amount)
+        mass = file['tree'].pandas.df("v0_" + self.masstype + "_mass", entrystop = load_amount)
         try:
             label = file['tree'].pandas.df("true" + self.masstype.capitalize(), entrystop = load_amount)
         except:
+            label = None
             pass
 
 
         # Apply a mass range limit. 
         if mass_range:
-            mask = (mass >= mass_range[0]) & (mass <= mass_range[1])
-            data = data.loc[mask, :]
-            mass = mass.loc[mask, :]
+            mask = ((mass >= mass_range[0]) & (mass <= mass_range[1])).values
+            data = data[mask]
+            mass = mass[mask]
             if label:
                 label = label[mask]
             self.bins = int((mass_range[1] - mass_range[0])/0.5)
-
 
         # Split set
         from sklearn.model_selection import train_test_split
@@ -78,7 +78,19 @@ class Dataset():
         mask = vals > 0
         xs, vals, errs = xs[mask], vals[mask], np.sqrt(va)[mask]
         #look into automatizing the guesses
-        mu, sigma, N = guesses_sig
+        #Find peak:
+        
+        def find_peak(xs=xs,vals=vals):
+            '''Linearly decorrelate and return argmax. 
+            Works best for appropriate # of bins'''
+            c = np.cov(xs,vals)
+            beta = c[0,1]/c[0,0]
+            alpha = vals.mean() - beta*xs.mean()
+            return np.argmax(vals - (beta*xs + alpha))
+        
+        mu = find_peak()
+        sigma = 5 #Arbitrarily set
+        
         #Make a 5 sigma cut so only background is here
         bkgr_mask = (xs < mu-5*sigma) | (xs > mu+5*sigma)
         guesses_bkgr=np.zeros(poly_degree+1)
@@ -86,7 +98,7 @@ class Dataset():
         def background_fit(x, a, b, c, d):
             return a * (x-mu) ** 3 + b * (x-mu) ** 2 + c * (x-mu) + d
          # Background fit under here
-        if sum(bkgr_mask])<poly_degree+1
+        if sum(bkgr[mask])<poly_degree+1:
             def background_fit(xs, a, b, c, d):
                 return 0*xs
             b1, b2, b3, b4=0,0,0,0
@@ -118,7 +130,7 @@ class Dataset():
             def full_fit(x, mean, sig, size, f, sigmp, a, b, c, d):
                 return background_fit(x, a, b, c, d) + f*gauss(x, mean, sig, size) + (1-f)*gauss(x, mean, sigmp*sig, size)
         else:
-            # Full fit for double gauss
+            # Full fit for single gauss
             def full_fit(x, mean, sig, size, a, b, c, d):
                 return background_fit(x, a, b, c, d) + gauss(x, mean, sig, size)
 
