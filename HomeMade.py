@@ -215,6 +215,16 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     
     neg_bkgr = any(background_fit(xs, b1, b2, b3, b4)<0)
     
+    def signal():
+        def signal_func(x):
+            return f*sig1(x, mean, sig, size) + (1-f)*sig2(x, mean, sigmp*sig, size)
+        return signal_func
+    
+    def background():
+        def background_func(x):
+            return background_fit(x, b1, b2, b3, b4)
+        return background_func
+    
     if plot:
         ax_all.plot(xs, full_fit(xs, *full_min.args), "k-", label = "full_fit")
         ax_all.plot(xs, background_fit(xs, b1, b2, b3, b4),'b--',  label = "background_fit")
@@ -248,9 +258,11 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
         add_text_to_ax(0.70, 0.90, text_output, ax_sig)
 
         fig.tight_layout()
-        return {'fig': fig,'ax': ax,'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr}
+        return {'fig': fig,'ax': ax,'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr,
+               'sig_func': signal(), 'bkgr_func': background()}
         
-    return {'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr}
+    return {'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr,
+               'sig_func': signal(), 'bkgr_func': background()}
 
 def assign_pseudolabels(train_data):
     vals, binc, binw = hist(train_data.v0_ks_mass,bins=100)
