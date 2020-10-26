@@ -464,7 +464,7 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
     from matplotlib.cm import winter
     colors = winter(np.linspace(0, 1, Npoints)[::-1])
     from scipy.special import logit
-    lprobs = np.sort(probs)#np.sort(logit(probs))
+    lprobs = np.sort(logit(probs))
     if ax_hist:
         n, edges, patches = ax_hist.hist(lprobs, bins = bins, histtype = 'stepfilled', color = 'gray')
 #         print(n)
