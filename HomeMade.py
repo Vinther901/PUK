@@ -147,7 +147,7 @@ from AppStatFunctions import Chi2Regression, nice_string_output, add_text_to_ax
 from scipy.optimize import curve_fit
 from scipy.stats import norm, chi2
 
-def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guesses_sig = [498, 6, 17000],plot=True):
+def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guesses_sig = [498, 6, 17000],plot=True,type='ks'):
     guesses_bkgr[-1] = 0.5*(vals[0] + vals[-1])
     guesses_sig[-1] = 20*max(vals)#np.sqrt(2*np.pi*guesses_sig[1]**2)*(max(vals))# - guesses_bkgr[-1])
     
@@ -173,7 +173,10 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
         return background_fit(x, a, b, c, d) + f*sig1(x, mean, sig, size) + (1-f)*sig2(x, mean, sigmp*sig, size)
     
      # Background fit under here
-    bkgr_mask = (xs < 475) | (xs > 525)
+    if type == 'ks':
+        bkgr_mask = (xs < 475) | (xs > 525)
+    elif type == 'la':
+        bkgr_mask = abs(xs - 1117) > 5
     vals_b, cov_b = curve_fit(background_fit, xs[bkgr_mask], vals[bkgr_mask], p0 = guesses_bkgr)
     b1, b2, b3, b4 = vals_b
     bkgr_chi2 = Chi2Regression(background_fit, xs[bkgr_mask], vals[bkgr_mask], errs[bkgr_mask])
@@ -192,12 +195,17 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     #Save guesses 
     b1, b2, b3, b4 = bkgr_min.args
     s1, s2, s3 = guesses_sig
+    if type == 'la':
+        s1 = 1117
     
     # Full fit
     full_chi2 = Chi2Regression(full_fit, xs, vals, errs)
+#     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
+#                        mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
+#                       limit_mean=(475,525), limit_f=(0,1), limit_size=(0,None))
     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
                        mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
-                      limit_mean=(475,525), limit_f=(0,1), limit_size=(0,None))
+                      limit_f=(0,1), limit_size=(0,None),limit_sig=(0.1,4))
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         
@@ -264,17 +272,27 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     return {'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr,
                'sig_func': signal(), 'bkgr_func': background()}
 
-def assign_pseudolabels(train_data):
-    vals, binc, binw = hist(train_data.v0_ks_mass,bins=100)
-    d = fit_mass2(binc,vals,np.sqrt(vals))
+def assign_pseudolabels(train_data,type='ks'):
+    if type == 'ks':
+        mass = train_data.v0_ks_mass
+    elif type == 'la':
+        mass = train_data.v0_la_mass
+    vals, binc, binw = hist(mass,bins=100)
+    d = fit_mass2(binc,vals,np.sqrt(vals),type=type)
     fig, ax, M, sig, bkgr = d['fig'], d['ax'], d['M'], d['sig'], d['bkgr']
     
     mean, sigma = M.values['mean'], M.values['sig']
-    signal = train_data.loc[(train_data.v0_ks_mass > mean - sigma) & (train_data.v0_ks_mass < mean + sigma)]
-    bkgr_l = train_data.loc[(train_data.v0_ks_mass > mean - 15*sigma) & (train_data.v0_ks_mass < mean - 10*sigma)]
-    bkgr_r = train_data.loc[(train_data.v0_ks_mass > mean + 10*sigma) & (train_data.v0_ks_mass < mean + 15*sigma)]
-    ax[0].vlines([mean-sigma,mean+sigma,mean-15*sigma,mean-10*sigma,mean+10*sigma,mean+15*sigma],min(vals),max(vals))
-
+    if type == 'ks':
+        signal = train_data.loc[(mass > mean - sigma) & (mass < mean + sigma)]
+        bkgr_l = train_data.loc[(mass > mean - 15*sigma) & (mass < mean - 10*sigma)]
+        bkgr_r = train_data.loc[(mass > mean + 10*sigma) & (mass < mean + 15*sigma)]
+        ax[0].vlines([mean-sigma,mean+sigma,mean-15*sigma,mean-10*sigma,mean+10*sigma,mean+15*sigma],min(vals),max(vals))
+    elif type =='la':
+        signal = train_data.loc[(mass > mean - sigma) & (mass < mean + sigma)]
+        bkgr_l = train_data.loc[(mass > mean - 7*sigma) & (mass < mean - 3*sigma)]
+        bkgr_r = train_data.loc[(mass > mean + 3*sigma) & (mass < mean + 7*sigma)]
+        ax[0].vlines([mean-sigma,mean+sigma,mean-7*sigma,mean-3*sigma,mean+3*sigma,mean+7*sigma],min(vals),max(vals))
+        
     min_sample = min([len(signal),len(bkgr_l),len(bkgr_r)])
 #     if min_sample != len(signal):print("WARNING! increase background samplesize or increase signal sample-size")
 
@@ -358,11 +376,16 @@ from scipy.stats import norm, chi2
 # Roc-curve related
 from sklearn.metrics import auc
 
-def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = True, guesses = None, max_size = None, plimit = 0, color = "red"):
+def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = True, guesses = None, max_size = None, plimit = 0, color = "red",type='ks'):
     # Fit third degree polynomium to background
-    def background_fit(x, a, b, c, d):
-        res = a * (x- 498) ** 3 + b * (x-498) ** 2 + c * (x-498) + d
-        return res
+    if type == 'ks':
+        def background_fit(x, a, b, c, d):
+            res = a * (x- 498) ** 3 + b * (x-498) ** 2 + c * (x-498) + d
+            return res
+    elif type == 'la':
+        def background_fit(x, a, b, c, d):
+            res = a * (x- 1116) ** 3 + b * (x-1116) ** 2 + c * (x-1116) + d
+            return res
     
     # The double gauss signal
     def add_signal(x, mean, sig, size, ratio, sig_ratio):
@@ -387,7 +410,10 @@ def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = 
 
     # Get guesses for a background fit
     if not guesses:
-        back_data_mask = abs(xs - xs[np.argmax(vals)]) > 10
+        if type == 'ks':
+            back_data_mask = abs(xs - xs[np.argmax(vals)]) > 10
+        if type == 'la':
+            back_data_mask = abs(xs - 1117) > 5
         background_guess =  [0, 0, (vals[-1]- vals[0]) / 100, vals.min()]
 
         if len(vals[back_data_mask]) == 0:
@@ -410,8 +436,11 @@ def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = 
         
         #Save guesses 
         b1, b2, b3, b4 = bkgr_min.args
-
-        guesses_sig = [498, 7, 2000, 0.5, 2]
+        
+        if type == 'ks':
+            guesses_sig = [498, 7, 2000, 0.5, 2]
+        elif type == 'la':
+            guesses_sig = [1116, 3, 3700, 0.5, 2]
         try:
             vals_f, cov_f = curve_fit(full_fit, xs, vals, p0 = guesses_sig + [b1, b2, b3, b4])
         except:
@@ -422,9 +451,14 @@ def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = 
         s1, s2, s3, s4, s5, b1, b2, b3, b4 = guesses
 
     full_chi2 = Chi2Regression(full_fit, xs, vals, errs)
-    full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
-                       mean = s1, sig = s2, size = s3, ratio = s4, sig_ratio = s5, limit_sig_ratio = (1, 4), \
-                       limit_ratio = (0, 1.0), limit_mean = (490, 510), limit_size = (0, max_size), limit_sig = (3, 10))
+    if type == 'ks':
+        full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
+                           mean = s1, sig = s2, size = s3, ratio = s4, sig_ratio = s5, limit_sig_ratio = (1, 4), \
+                           limit_ratio = (0, 1.0), limit_mean = (490, 510), limit_size = (0, max_size), limit_sig = (3, 10))
+    elif type == 'la':
+        full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
+                           mean = s1, sig = s2, size = s3, ratio = s4, sig_ratio = s5, limit_sig_ratio = (1, 4), \
+                           limit_ratio = (0, 1.0), limit_mean = (1115,1118), limit_size = (0, max_size), limit_sig = (0.1,4))
     full_min.migrad()
     
     full_min.migrad()
@@ -448,23 +482,27 @@ def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = 
 #         ax.errorbar(xs, vals, errs, elinewidth = 1, color = 'k', capsize = 2, linestyle = 'none', alpha = 0.25)
 #         ax.plot(xs, full_fit(xs, *full_min.args), '--', alpha = 0.5)
 
+#         s1, s2, s3, s4, s5, b1, b2, b3, b4 = full_min.args
+#         ax.plot(xs,background_fit(xs,b1,b2,b3,b4),color=color)
+#         ax.plot(xs,add_signal(xs,s1,s2,s3,s4,s5)+background_fit(xs,b1,b2,b3,b4),color='k',ls='--')
+
     if True:#full_min.errors['size'] < full_min.values['size'] and full_min.valid and pval > plimit:
         return full_min.values['size'], len(mass) - full_min.values['size'], full_min.errors['size'], full_min.args
     else:
         return None, None, None, None
 
 
-def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax_roc = None , ax_fits = None, verbose = True, plimit = 0.01, ax_hist = None):
+def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax_roc = None , ax_fits = None, verbose = True, plimit = 0.01, ax_hist = None,type='ks'):
     sigs, bkgrs, errs = [], [], []
     mass = np.array(mass)
     mass = mass[np.argsort(probs)]
     cuts = (len(mass) / Npoints * np.arange(0, Npoints)).astype(int)
     args = None
     max_size = None
-    from matplotlib.cm import winter
+    from matplotlib.cm import winter, plasma
     colors = winter(np.linspace(0, 1, Npoints)[::-1])
     from scipy.special import logit
-    lprobs = np.sort(probs)#np.sort(logit(probs))
+    lprobs = np.sort(logit(probs))
     if ax_hist:
         n, edges, patches = ax_hist.hist(lprobs, bins = bins, histtype = 'stepfilled', color = 'gray')
 #         print(n)
@@ -472,17 +510,19 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
             ax_hist.vlines(lprobs[cut], 0, max(n), color = color, linestyle = "dashed", alpha = 0.5)
             
     for i, c in zip(cuts, colors):
-        bkgr, sig, err, args = double_gauss_fit(mass[i:], bins = bins, range = range, ax = ax_fits, verbose = verbose, guesses = args, max_size = max_size, plimit = plimit, color = c)
+        sig, bkgr, err, args = double_gauss_fit(mass[i:], bins = bins, range = range, ax = ax_fits, verbose = verbose, guesses = args, max_size = max_size, plimit = plimit, color = c,type=type)
+#         print(args)
         if bkgr:
             bkgrs.append(bkgr)
             sigs.append(sig)
             errs.append(err)
-            if len(sigs) == 1:
-                max_size = 1 * args[2]
+            max_size = max(1.5*sig,0.1)
+#             if len(sigs) == 1:
+#                 max_size = 1.05 * sig
 
     sigs, bkgrs, errs = np.array(sigs), np.array(bkgrs), np.array(errs)
-    y = sigs/sigs.max()
-    x = bkgrs/bkgrs.max()
+    x = sigs/sigs.max()
+    y = bkgrs/bkgrs.max()
 
 #     x = np.append(x, 0)[::-1]
 #     y = np.append(y, 0)[::-1]
@@ -493,7 +533,7 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
 #     y_errs = np.sqrt((errs/bkgrs.max()) ** 2 + (errs[bkgrs.argmax()] * bkgrs / bkgrs.max() ** 2) ** 2)
     
     if ax_roc:
-        ax_roc.scatter(x, y, c = colors)
+        ax_roc.scatter(x,y, c = colors)
 #         ax_roc.errorbar(x[:-1], y[:-1], x_errs, y_errs, elinewidth = 1, capsize = 2, color = 'k', ls = 'none')
         ax_roc.set(xlim = (-0.2, 1.2), ylim = (-0.2, 1.2))
         ax_roc.vlines([0,1],0,1,ls='--',color='gray',zorder=-1)
