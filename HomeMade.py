@@ -498,14 +498,14 @@ def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = 
 def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax_roc = None , ax_fits = None, verbose = True, plimit = 0.01, ax_hist = None,type='ks'):
     sigs, bkgrs, errs = [], [], []
     mass = np.array(mass)
-    mass = mass[np.argsort(probs)]
+    mass = mass[np.argsort(probs)[::-1]]
     cuts = (len(mass) / Npoints * np.arange(0, Npoints)).astype(int)
     args = None
     max_size = None
     from matplotlib.cm import winter, plasma
     colors = winter(np.linspace(0, 1, Npoints)[::-1])
     from scipy.special import logit
-    lprobs = np.sort(logit(probs))
+    lprobs = np.sort(logit(probs))[::-1]
     if ax_hist:
         n, edges, patches = ax_hist.hist(lprobs, bins = bins, histtype = 'stepfilled', color = 'gray')
 #         print(n)
@@ -519,13 +519,13 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
             bkgrs.append(bkgr)
             sigs.append(sig)
             errs.append(err)
-            max_size = max(1.5*sig,0.1)
+            max_size = max(1.5*sig,100)
 #             if len(sigs) == 1:
 #                 max_size = 1.05 * sig
 
     sigs, bkgrs, errs = np.array(sigs), np.array(bkgrs), np.array(errs)
-    x = sigs/sigs.max()
-    y = bkgrs/bkgrs.max()
+    y = 1-sigs/sigs.max()
+    x = 1-bkgrs/bkgrs.max()
 
 #     x = np.append(x, 0)[::-1]
 #     y = np.append(y, 0)[::-1]
@@ -542,9 +542,9 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
         ax_roc.vlines([0,1],0,1,ls='--',color='gray',zorder=-1)
         ax_roc.hlines([0,1],0,1,ls='--',color='gray',zorder=-1)
         
-    return AUC_estimate, cuts
+    return AUC_estimate, cuts, x, y
 
-def weighted_mean(x, errs, ax = None, coords = (0.1, 0.9), dec = 3):
+def weighted_mean(x, errs, ax = None, plot_ticks = None, point_label=None, coords = (0.1, 0.9), dec = 3):
     """
     This function takes as input measurents and errors and returns the weighted mean along with the error.
     The weighted mean is calculated by doing a Chi-Square fit with a constant.
@@ -567,7 +567,9 @@ def weighted_mean(x, errs, ax = None, coords = (0.1, 0.9), dec = 3):
 
 
     if ax:
-        ax.plot(ticks, x, 'r.')
+        if type(plot_ticks) != type(None):
+            ticks = plot_ticks
+        ax.plot(ticks, x, 'r.',label=point_label)
         ax.errorbar(ticks, x, errs, c = 'k', elinewidth = 1, \
                        capsize = 2, ls = 'none')
         ax.hlines(k, min(ticks), max(ticks), ls = '--', label = "Weighted mean")
