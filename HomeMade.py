@@ -147,7 +147,7 @@ from AppStatFunctions import Chi2Regression, nice_string_output, add_text_to_ax
 from scipy.optimize import curve_fit
 from scipy.stats import norm, chi2
 
-def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guesses_sig = [498, 6, 17000],plot=True,type='ks'):
+def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guesses_sig = [497, 6, 17000],plot=True,type='ks'):
     guesses_bkgr[-1] = 0.5*(vals[0] + vals[-1])
     guesses_sig[-1] = 20*max(vals)#np.sqrt(2*np.pi*guesses_sig[1]**2)*(max(vals))# - guesses_bkgr[-1])
     
@@ -177,8 +177,11 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
         bkgr_mask = (xs < 475) | (xs > 525)
     elif type == 'la':
         bkgr_mask = abs(xs - 1117) > 5
-    vals_b, cov_b = curve_fit(background_fit, xs[bkgr_mask], vals[bkgr_mask], p0 = guesses_bkgr)
-    b1, b2, b3, b4 = vals_b
+    try:
+        vals_b, cov_b = curve_fit(background_fit, xs[bkgr_mask], vals[bkgr_mask], p0 = guesses_bkgr)
+        b1, b2, b3, b4 = vals_b
+    except:
+        b1, b2, b3, b4 = guesses_bkgr
     bkgr_chi2 = Chi2Regression(background_fit, xs[bkgr_mask], vals[bkgr_mask], errs[bkgr_mask])
     bkgr_min  = Minuit(bkgr_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4)
 
@@ -272,21 +275,21 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     return {'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr,
                'sig_func': signal(), 'bkgr_func': background()}
 
-def assign_pseudolabels(train_data,type='ks'):
+def assign_pseudolabels(train_data,type='ks',bins=100):
     if type == 'ks':
         mass = train_data.v0_ks_mass
     elif type == 'la':
         mass = train_data.v0_la_mass
-    vals, binc, binw = hist(mass,bins=100)
+    vals, binc, binw = hist(mass,bins=bins)
     d = fit_mass2(binc,vals,np.sqrt(vals),type=type)
     fig, ax, M, sig, bkgr = d['fig'], d['ax'], d['M'], d['sig'], d['bkgr']
     
     mean, sigma = M.values['mean'], M.values['sig']
     if type == 'ks':
-        signal = train_data.loc[(mass > mean - sigma) & (mass < mean + sigma)]
+        signal = train_data.loc[(mass > mean - 2*sigma) & (mass < mean + 2*sigma)]
         bkgr_l = train_data.loc[(mass > mean - 15*sigma) & (mass < mean - 10*sigma)]
         bkgr_r = train_data.loc[(mass > mean + 10*sigma) & (mass < mean + 15*sigma)]
-        ax[0].vlines([mean-sigma,mean+sigma,mean-15*sigma,mean-10*sigma,mean+10*sigma,mean+15*sigma],min(vals),max(vals))
+        ax[0].vlines([mean-2*sigma,mean+2*sigma,mean-15*sigma,mean-10*sigma,mean+10*sigma,mean+15*sigma],min(vals),max(vals))
     elif type =='la':
         signal = train_data.loc[(mass > mean - sigma) & (mass < mean + sigma)]
         bkgr_l = train_data.loc[(mass > mean - 7*sigma) & (mass < mean - 3*sigma)]
@@ -540,4 +543,41 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
         ax_roc.hlines([0,1],0,1,ls='--',color='gray',zorder=-1)
         
     return AUC_estimate, cuts
+
+def weighted_mean(x, errs, ax = None, coords = (0.1, 0.9), dec = 3):
+    """
+    This function takes as input measurents and errors and returns the weighted mean along with the error.
+    The weighted mean is calculated by doing a Chi-Square fit with a constant.
+    if ax is given, the function will plot the fit, data and errors on it. 
+    The function return weighted_mean, err, and a dictionairy with chi-square value and p-value
+    """
+    def constant(x, k): return k
+    from AppStatFunctions import Chi2Regression, nice_string_output, add_text_to_ax
+    
+    ticks = np.arange(len(x))
+
+    chi2_object = Chi2Regression(constant, ticks, x, errs)
+    chi2_min = Minuit(chi2_object, pedantic = False)
+    chi2_min.migrad()
+
+    Chi2 = chi2_min.fval
+    p_val = chi2.sf(Chi2, len(x)-1)
+    k = chi2_min.args[0]
+    err = chi2_min.errors[0]
+
+
+    if ax:
+        ax.plot(ticks, x, 'r.')
+        ax.errorbar(ticks, x, errs, c = 'k', elinewidth = 1, \
+                       capsize = 2, ls = 'none')
+        ax.hlines(k, min(ticks), max(ticks), ls = '--', label = "Weighted mean")
+        d = {"chisquare":   Chi2, \
+             "p:":           p_val, \
+             "mean:":        k,\
+             "mean_err":     err}
+
+        add_text_to_ax(*coords, nice_string_output(d, decimals=dec), ax, fontsize = 10)
+        ax.legend()
+
+    return k, err, {"chi2": Chi2, "p": p_val}
 
