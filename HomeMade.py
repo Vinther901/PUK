@@ -147,12 +147,18 @@ from AppStatFunctions import Chi2Regression, nice_string_output, add_text_to_ax
 from scipy.optimize import curve_fit
 from scipy.stats import norm, chi2
 
-def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guesses_sig = [497, 6, 17000],plot=True,type='ks'):
+def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guesses_sig = [497, 6, 17000],plot=True,type='ks',second_axis=None):
     guesses_bkgr[-1] = 0.5*(vals[0] + vals[-1])
     guesses_sig[-1] = 20*max(vals)#np.sqrt(2*np.pi*guesses_sig[1]**2)*(max(vals))# - guesses_bkgr[-1])
     
     if not ax and plot:
         fig, ax = plt.subplots(figsize = (16, 10), ncols = 2)
+        ax_sig = ax[1]
+        ax_all = ax[0]
+        ax_all.plot(xs, vals, 'r.')
+        ax_all.errorbar(xs, vals, errs, color = 'k', elinewidth = 1, capsize = 2, ls = 'none')
+    elif plot:
+        fig = None
         ax_sig = ax[1]
         ax_all = ax[0]
         ax_all.plot(xs, vals, 'r.')
@@ -203,12 +209,12 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
     
     # Full fit
     full_chi2 = Chi2Regression(full_fit, xs, vals, errs)
-#     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
-#                        mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
-#                       limit_mean=(475,525), limit_f=(0,1), limit_size=(0,None))
     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
                        mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
-                      limit_f=(0,1), limit_size=(0,None),limit_sig=(0.1,4))
+                      limit_mean=(475,525), limit_f=(0,1), limit_size=(0,None))
+#     full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
+#                        mean = s1, sig = s2, size = s3, f = 0.5, sigmp = 2, \
+#                       limit_f=(0,1), limit_size=(0,None),limit_sig=(0.1,10))
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         
@@ -267,10 +273,29 @@ def fit_mass2(xs, vals, errs, ax = None, guesses_bkgr = [0, 0, -10, 2000], guess
 
         text_output = nice_string_output(text_a, decimals = 2)
         add_text_to_ax(0.70, 0.90, text_output, ax_sig)
-
-        fig.tight_layout()
+        try:
+            fig.tight_layout()
+        except:
+            pass
+        
         return {'fig': fig,'ax': ax,'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr,
                'sig_func': signal(), 'bkgr_func': background()}
+        
+    only_text = True
+    if only_text and second_axis:
+        N_sig = full_min.values['size']
+        N_background = sum(vals) - N_sig
+        text = {
+            'mean': f"{full_min.values['mean']:.1f} +/- {full_min.errors['mean']:.1f}",\
+            'sigma': f"{full_min.values['sig']:.2f} +/- {full_min.errors['sig']:.2f}",\
+            'sigma-mp': f"{full_min.values['sigmp']:.2f} +/- {full_min.errors['sigmp']:.2f}",\
+            'f': f"{full_min.values['f']:.2f} +/- {full_min.errors['f']:.2f}",\
+            'signal':    f"{N_sig:.0f} +/- {full_min.errors['size']:.0f}",\
+              'background': f"{N_background:.0f} +/- {full_min.errors['size']:.0f}", \
+              's/b': f"{N_sig/N_background:.3f} +/- {N_sig/N_background*full_min.errors['size']*np.sqrt(1/N_sig**2 + 1/N_background**2):.3f}"}
+        
+        text_output = nice_string_output(text,extra_spacing=1)
+        add_text_to_ax(0.01, 0.99, text_output, second_axis)
         
     return {'M': full_min,'sig': sig_amount,'bkgr': bak_amount,'neg_bkgr': neg_bkgr,
                'sig_func': signal(), 'bkgr_func': background()}
@@ -461,7 +486,7 @@ def double_gauss_fit(mass, bins = 100, range = (400, 600), ax = None, verbose = 
     elif type == 'la':
         full_min  = Minuit(full_chi2, pedantic = False, a = b1, b = b2, c = b3, d = b4, \
                            mean = s1, sig = s2, size = s3, ratio = s4, sig_ratio = s5, limit_sig_ratio = (1, 4), \
-                           limit_ratio = (0, 1.0), limit_mean = (1115,1118), limit_size = (0, max_size), limit_sig = (0.1,4))
+                           limit_ratio = (0, 1.0), limit_mean = (1115,1118), limit_size = (0, max_size), limit_sig = (0.1,10))
     full_min.migrad()
     
     full_min.migrad()
@@ -530,7 +555,7 @@ def roc_curve_data(mass, probs, Npoints = 10, bins = 100, range = (400, 600), ax
 #     x = np.append(x, 0)[::-1]
 #     y = np.append(y, 0)[::-1]
 
-    AUC_estimate = np.trapz(np.append(x, 0), np.append(y, 0))
+    AUC_estimate = np.trapz(np.append(y, 1), np.append(x, 1))
 
 #     x_errs = np.sqrt((errs/sigs.max()) ** 2 + (errs[sigs.argmax()] * sigs / sigs.max() ** 2) ** 2)
 #     y_errs = np.sqrt((errs/bkgrs.max()) ** 2 + (errs[bkgrs.argmax()] * bkgrs / bkgrs.max() ** 2) ** 2)
