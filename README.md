@@ -1,2 +1,2 @@
 # PUK
-Projekt Uden for Kursusregi, med Troels som vejleder. Omhandler partikelfysik og brugen af appstat og evt ML.
+Project supervised by Troels C. Petersen about particlephysics and the use of 'applied statistics and Machine Learning'.
